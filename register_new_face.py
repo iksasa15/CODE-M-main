@@ -4,7 +4,7 @@ import glob as gb
 import sounddevice as sd
 import wavio
 import requests
-from config import CAMERA_URL
+from config import CAMERA_URL, USE_DEVICE_CAMERA, capture_from_device
 
 # ======================================================================
 engine = None
@@ -72,22 +72,30 @@ parent_dir = path_of_name
 path = os.path.join(parent_dir, directory)
 os.makedirs(path, exist_ok=True)
 
-url = CAMERA_URL
 captured_count = 0
-
-for i in range(6): # Try to take 6 pictures
-    try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            filename = os.path.join(path, f"image{i}.jpg")
-            with open(filename, 'wb') as file:
-                file.write(response.content)
-            print(f"Picture {i+1} has been successfully captured.")
-            captured_count += 1
-        else:
-            print(f"Failed to take picture {i+1}. Status code: {response.status_code}")
-    except Exception as e:
-        print(f"Error capturing picture {i+1}: {e}")
+if USE_DEVICE_CAMERA:
+    import shutil
+    raw = capture_from_device(6, 0.4)
+    for i, p in enumerate(raw):
+        filename = os.path.join(path, f"image{i}.jpg")
+        shutil.move(p, filename)
+        captured_count += 1
+        print(f"Picture {i+1} has been successfully captured (device camera).")
+else:
+    url = CAMERA_URL
+    for i in range(6):
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                filename = os.path.join(path, f"image{i}.jpg")
+                with open(filename, 'wb') as file:
+                    file.write(response.content)
+                print(f"Picture {i+1} has been successfully captured.")
+                captured_count += 1
+            else:
+                print(f"Failed to take picture {i+1}. Status code: {response.status_code}")
+        except Exception as e:
+            print(f"Error capturing picture {i+1}: {e}")
 
 if captured_count == 0:
     print("Error: Could not capture any images for registration.")

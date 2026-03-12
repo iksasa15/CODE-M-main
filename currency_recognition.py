@@ -11,7 +11,7 @@ import keras
 import shutil
 from collections import Counter
 import requests
-from config import CAMERA_URL_240
+from config import CAMERA_URL_240, USE_DEVICE_CAMERA, capture_from_device
 
 # ======================================================================
 engine = None
@@ -48,23 +48,29 @@ if os.path.exists(path):
     shutil.rmtree(path)
 os.makedirs(path, exist_ok=True)
 # ======================================================================
-url = CAMERA_URL_240
 captured_files = []
-
-for i in range(11):  # Try capturing 11 images
-    try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            # Use path variable
-            filename = os.path.join(path, f'mony_{i+1}.jpg')
-            with open(filename, 'wb') as file:
-                file.write(response.content)
-            captured_files.append(filename)
-            print(f"Picture {i+1} has been successfully captured.")
-        else:
-            print(f"Failed to take the picture {i+1}. Status code: {response.status_code}")
-    except Exception as e:
-        print(f"Error connecting to camera: {e}")
+if USE_DEVICE_CAMERA:
+    import shutil
+    raw = capture_from_device(11, 0.3)
+    for i, p in enumerate(raw):
+        filename = os.path.join(path, f'mony_{i+1}.jpg')
+        shutil.move(p, filename)
+        captured_files.append(filename)
+else:
+    url = CAMERA_URL_240
+    for i in range(11):
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                filename = os.path.join(path, f'mony_{i+1}.jpg')
+                with open(filename, 'wb') as file:
+                    file.write(response.content)
+                captured_files.append(filename)
+                print(f"Picture {i+1} has been successfully captured.")
+            else:
+                print(f"Failed to take the picture {i+1}. Status code: {response.status_code}")
+        except Exception as e:
+            print(f"Error connecting to camera: {e}")
 
 if not captured_files:
     print("Error: Could not capture any images from camera.")

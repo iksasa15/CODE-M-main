@@ -4,8 +4,10 @@ import time
 import requests
 import os
 import sys
+import struct
+import socket
 import numpy as np
-from config import STREAM_URL
+from config import STREAM_URL, USE_DEVICE_CAMERA
 
 # ======================================================================
 engine = None
@@ -86,22 +88,41 @@ except Exception as e:
 # ======================================================================
 
 def run_live_age_gender():
-    stream_url = STREAM_URL
-    cap = cv2.VideoCapture(stream_url)
-    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;5000000"
-    
+    stream_sock = None
+    stream_to_browser = os.environ.get("STREAM_TO_BROWSER") == "1"
+    stream_port = os.environ.get("STREAM_PORT")
+    if stream_to_browser and stream_port:
+        try:
+            stream_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            stream_sock.connect(("127.0.0.1", int(stream_port)))
+        except Exception as e:
+            print(f"Stream to browser failed: {e}")
+            stream_sock = None
+
+    if USE_DEVICE_CAMERA:
+        print("Using device camera (0)")
+        cap = cv2.VideoCapture(0)
+    else:
+        stream_url = STREAM_URL
+        cap = cv2.VideoCapture(stream_url)
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;5000000"
+
     AI_speak("Age and gender detection started.")
     last_speak_time = 0
 
     while True:
         ret, frame = cap.read()
         if not ret:
+            if USE_DEVICE_CAMERA:
+                time.sleep(0.1)
+                continue
             time.sleep(1)
-            cap.open(stream_url)
+            cap.open(STREAM_URL)
             continue
 
         if face_net:
             frame_face, bboxes = get_face_box(face_net, frame)
+            out_frame = frame_face
             for bbox in bboxes:
                 face = frame[max(0, bbox[1]-20):min(bbox[3]+20, frame.shape[0]-1),
                              max(0, bbox[0]-20):min(bbox[2]+20, frame.shape[1]-1)]
@@ -124,15 +145,26 @@ def run_live_age_gender():
                 if time.time() - last_speak_time > 5:
                     AI_speak(f"Person detected. Looks like a {gender} aged {age}")
                     last_speak_time = time.time()
-            
-            cv2.imshow("Age and Gender Detection", frame_face)
         else:
             cv2.putText(frame, "MODELS MISSING", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            cv2.imshow("Age and Gender Detection", frame)
+            out_frame = frame
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        if stream_sock:
+            try:
+                _, jpeg = cv2.imencode(".jpg", out_frame)
+                stream_sock.sendall(struct.pack(">I", len(jpeg)) + jpeg.tobytes())
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                break
+        else:
+            cv2.imshow("Age and Gender Detection", out_frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
 
+    if stream_sock:
+        try:
+            stream_sock.close()
+        except Exception:
+            pass
     cap.release()
     cv2.destroyAllWindows()
 
