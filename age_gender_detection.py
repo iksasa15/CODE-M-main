@@ -58,6 +58,7 @@ def get_face_box(net, frame, conf_threshold=0.7):
 # مسار مجلد الأوزان
 script_dir = os.path.dirname(os.path.abspath(__file__))
 weights_dir = os.path.join(script_dir, "weights")
+os.makedirs(weights_dir, exist_ok=True)
 
 FACE_PROTO = os.path.join(weights_dir, "opencv_face_detector.pbtxt")
 FACE_MODEL = os.path.join(weights_dir, "opencv_face_detector_uint8.pb")
@@ -70,20 +71,87 @@ MODEL_MEAN_VALUES = (78.4263377603, 87.7689143744, 114.895847746)
 AGE_LIST = ["(0-2)", "(4-6)", "(8-12)", "(15-20)", "(25-32)", "(38-43)", "(48-53)", "(60-100)"]
 GENDER_LIST = ["Male", "Female"]
 
+# تحميل نموذج الوجه تلقائياً إن كان مفقوداً
+def _download_face_model():
+    if os.path.isfile(FACE_MODEL):
+        return True
+    urls = [
+        "https://raw.githubusercontent.com/opencv/opencv_3rdparty/dnn_samples_face_detector_20180220_uint8/opencv_face_detector_uint8.pb",
+        "https://github.com/opencv/opencv_3rdparty/raw/dnn_samples_face_detector_20180220_uint8/opencv_face_detector_uint8.pb",
+    ]
+    for url in urls:
+        try:
+            print("Downloading opencv_face_detector_uint8.pb ...")
+            r = requests.get(url, timeout=60, stream=True)
+            r.raise_for_status()
+            with open(FACE_MODEL, "wb") as f:
+                for chunk in r.iter_content(chunk_size=32768):
+                    f.write(chunk)
+            print("Downloaded successfully.")
+            return True
+        except Exception as e:
+            print(f"Try failed: {e}")
+    return False
+
+# كاشف وجه احتياطي (Haar) إذا فشل تحميل النموذج DNN
+_face_cascade = None
+
+def _init_face_cascade():
+    global _face_cascade
+    if _face_cascade is not None:
+        return _face_cascade if _face_cascade is not False else None
+    try:
+        path = getattr(cv2.data, "haarcascades", None)
+        if path:
+            path = os.path.join(path, "haarcascade_frontalface_default.xml")
+        if not path or not os.path.isfile(path):
+            path = os.path.join(os.path.dirname(cv2.__file__), "data", "haarcascade_frontalface_default.xml")
+        if os.path.isfile(path):
+            _face_cascade = cv2.CascadeClassifier(path)
+            if _face_cascade.empty():
+                _face_cascade = False
+        else:
+            _face_cascade = False
+    except Exception:
+        _face_cascade = False
+    return _face_cascade if _face_cascade is not False else None
+
+def get_face_box_haar(frame, conf_threshold=0.7):
+    """كشف الوجه بـ Haar cascade كبديل عند غياب النموذج DNN."""
+    cascade = _init_face_cascade()
+    if cascade is None or cascade is False:
+        return frame, []
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = cascade.detectMultiScale(gray, 1.1, 5, minSize=(30, 30))
+    bboxes = []
+    for (x, y, w, h) in faces:
+        x1, y1, x2, y2 = x, y, x + w, y + h
+        bboxes.append([x1, y1, x2, y2])
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), int(round(frame.shape[0] / 150)), 8)
+    return frame, bboxes
+
 # Load models
+face_net = None
+age_net = None
+gender_net = None
+
 try:
     if not os.path.exists(FACE_MODEL):
-        raise FileNotFoundError("Missing weight files in 'weights/' folder.")
-    
-    face_net = cv2.dnn.readNet(FACE_MODEL, FACE_PROTO)
+        _download_face_model()
+    if os.path.exists(FACE_MODEL) and os.path.exists(FACE_PROTO):
+        face_net = cv2.dnn.readNet(FACE_MODEL, FACE_PROTO)
+    if not all(os.path.exists(p) for p in (AGE_MODEL, GENDER_MODEL, AGE_PROTO, GENDER_PROTO)):
+        raise FileNotFoundError("Missing age/gender weight files in 'weights/' folder.")
     age_net = cv2.dnn.readNet(AGE_MODEL, AGE_PROTO)
     gender_net = cv2.dnn.readNet(GENDER_MODEL, GENDER_PROTO)
 except Exception as e:
     print(f"Error: {e}")
     print("Please ensure all model files are in the 'weights' folder.")
-    AI_speak("Model files are missing. Please check the weights folder.")
-    # Define dummy nets to avoid crash during window init if models missing
-    face_net = age_net = gender_net = None
+    if face_net is None and _init_face_cascade():
+        print("Using Haar cascade for face detection (fallback).")
+    if age_net is None or gender_net is None:
+        AI_speak("Model files are missing. Please check the weights folder.")
+        face_net = age_net = gender_net = None
 
 # ======================================================================
 
@@ -120,7 +188,7 @@ def run_live_age_gender():
             cap.open(STREAM_URL)
             continue
 
-        if face_net:
+        if face_net is not None:
             frame_face, bboxes = get_face_box(face_net, frame)
             out_frame = frame_face
             for bbox in bboxes:
@@ -142,6 +210,26 @@ def run_live_age_gender():
                 label = f"{gender}, {age}"
                 cv2.putText(frame_face, label, (bbox[0], bbox[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
                 
+                if time.time() - last_speak_time > 5:
+                    AI_speak(f"Person detected. Looks like a {gender} aged {age}")
+                    last_speak_time = time.time()
+        elif _init_face_cascade() and age_net is not None and gender_net is not None:
+            frame_face, bboxes = get_face_box_haar(frame)
+            out_frame = frame_face
+            for bbox in bboxes:
+                face = frame[max(0, bbox[1]-20):min(bbox[3]+20, frame.shape[0]-1),
+                             max(0, bbox[0]-20):min(bbox[2]+20, frame.shape[1]-1)]
+                if face.size == 0:
+                    continue
+                blob = cv2.dnn.blobFromImage(face, 1.0, (227, 227), MODEL_MEAN_VALUES, swapRB=False)
+                gender_net.setInput(blob)
+                gender_preds = gender_net.forward()
+                gender = GENDER_LIST[gender_preds[0].argmax()]
+                age_net.setInput(blob)
+                age_preds = age_net.forward()
+                age = AGE_LIST[age_preds[0].argmax()]
+                label = f"{gender}, {age}"
+                cv2.putText(frame_face, label, (bbox[0], bbox[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
                 if time.time() - last_speak_time > 5:
                     AI_speak(f"Person detected. Looks like a {gender} aged {age}")
                     last_speak_time = time.time()

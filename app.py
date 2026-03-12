@@ -451,4 +451,9 @@ def run():
 
 
 if __name__ == "__main__":
+    import logging
+    log = logging.getLogger("werkzeug")
+    log.setLevel(logging.WARNING)
+    print("Running at http://0.0.0.0:5001")
     app.run(host="0.0.0.0", port=5001, debug=False)
+    
