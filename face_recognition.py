@@ -40,22 +40,33 @@ parent_dir = os.path.dirname(os.path.abspath(__file__))
 path = os.path.join(parent_dir, directory)
 os.makedirs(path, exist_ok=True)
 url = CAMERA_URL
+captured_files = []
 for i in range(3):
-    # التقاط صورة من ESP32
-    response = requests.get(url)
-    if response.status_code == 200:
-        filename = f"{path}/image{i}.jpg"
-        with open(filename, 'wb') as file:
-            file.write(response.content)
-        print(f"تم التقاط الصورة رقم {i+1} بنجاح!")
-    else:
-        print(f"فشل في التقاط الصورة رقم {i+1}.")
+    try:
+        # التقاط صورة من ESP32
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            filename = os.path.join(path, f"image{i}.jpg")
+            with open(filename, 'wb') as file:
+                file.write(response.content)
+            captured_files.append(filename)
+            print(f"تم التقاط الصورة رقم {i+1} بنجاح!")
+        else:
+            print(f"فشل في التقاط الصورة رقم {i+1}. الحالة: {response.status_code}")
+    except Exception as e:
+        print(f"خطأ في الاتصال بالكاميرا للصورة {i+1}: {e}")
 
-    if i == 2:
-        # حذف أول صورة
-        first_image_path = f"{path}/image0.jpg"
-        os.remove(first_image_path)
-        print("first picture is delete")    
+if not captured_files:
+    AI_speak("Error: Could not capture any images from camera.")
+    print("Error: Could not capture images from camera.")
+    exit()
+
+# If we have multiple images, delete the first one (buffer clearing)
+if len(captured_files) > 1:
+    if os.path.exists(captured_files[0]):
+        os.remove(captured_files[0])
+        captured_files.pop(0)
+        print("First picture deleted (buffer cleared).")
 # ============================================================================
 known_faces = []
 known_names = []

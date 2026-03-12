@@ -19,3 +19,4 @@ CAMERA_URL_PATH = "/capture"
 # روابط جاهزة (لا تغيّر إلا لو الكاميرا تستخدم مسار مختلف)
 CAMERA_URL = f"http://{CAMERA_IP}{CAMERA_URL_PATH}"
 CAMERA_URL_240 = f"http://{CAMERA_IP}/240x240.jpg"
+STREAM_URL = f"http://{CAMERA_IP}:81/stream"

@@ -45,7 +45,8 @@ url = CAMERA_URL
 url = CAMERA_URL
 captured_files = []
 
-for i in range(2):  # Try capturing two images
+# Try capturing images (ideally 2 to clear buffer, but proceed with 1 if necessary)
+for i in range(2):
     try:
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
@@ -57,19 +58,22 @@ for i in range(2):  # Try capturing two images
         else:
             print(f"Failed to take the picture {i+1}. Status code: {response.status_code}")
     except Exception as e:
-        print(f"Error connecting to camera: {e}")
+        print(f"Error connecting to camera for picture {i+1}: {e}")
 
-if len(captured_files) < 2:
-    if len(captured_files) == 1:
-        os.remove(captured_files[0])
-    print("Error: Could not capture images from camera.")
+if not captured_files:
+    print("Error: Could not capture any images from camera.")
     AI_speak("Error capturing images.")
     exit()
 
-# Delete first picture (buffer clearing)
-if os.path.exists(captured_files[0]):
-    os.remove(captured_files[0])
-    print("First picture deleted.")
+# Use the last captured image for processing
+img_to_use = captured_files[-1]
+print(f"Using {img_to_use} for captioning.")
+
+# Cleanup other captured files if any
+for f in captured_files:
+    if f != img_to_use and os.path.exists(f):
+        os.remove(f)
+        print(f"Cleaned up temporary file: {f}")
                 
 
 # ====================================================================== 
@@ -212,7 +216,7 @@ def get_img(path):
     test_img = np.reshape(test_img, (1, 224, 224, 3))
     return test_img
 
-test_img_path = "image_caption_2.jpg"
+test_img_path = img_to_use
 test_feature = model.predict(get_img(test_img_path)).reshape(1, 2048)
 test_img = cv2.imread(test_img_path)
 test_img = cv2.cvtColor(test_img, cv2.COLOR_BGR2RGB)

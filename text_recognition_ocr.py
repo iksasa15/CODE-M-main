@@ -3,6 +3,7 @@ from PIL import Image
 from pytesseract import pytesseract
 import requests
 import os
+import time
 from config import CAMERA_URL
 
 # ======================================================================
@@ -34,55 +35,62 @@ AI_speak("text recognition has been activated")
 
 # =====================================================================================
 url = CAMERA_URL
-for i in range(2):  # تكرار العملية مرة لالتقاط صورتين
-    # إرسال طلب GET لالتقاط الصورة
-    response = requests.get(url)
+captured_files = []
 
-    # التحقق من نجاح الطلب
-    if response.status_code == 200:
-        # حفظ الصورة الملتقطة
-        filename = f'C:\\Users\\engmo\\OneDrive\\Documents\\vs code\\project\\text_recognition_{i+1}.jpg'
-        with open(filename, 'wb') as file:
-            file.write(response.content)
-        print(f"picture {i+1} has been successfully")
+for i in range(2):
+    try:
+        response = requests.get(url, timeout=15)
+        if response.status_code == 200:
+            filename = f'text_recognition_{i+1}.jpg'
+            with open(filename, 'wb') as file:
+                file.write(response.content)
+            captured_files.append(filename)
+            print(f"Picture {i+1} has been successfully captured.")
+        else:
+            print(f"Failed to take the picture {i+1}. Status code: {response.status_code}")
+    except Exception as e:
+        print(f"Error connecting to camera for picture {i+1}: {e}")
+    
+    # Wait a bit before next attempt
+    if i < 1:
+        time.sleep(2)
 
-        # # عرض الصورة الملتقطة باستخدام OpenCV
-        # image = cv2.imread(filename)
-        # cv2.imshow(f'Captured Image {i+1}', image)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
-    else:
-        print(f"Failed to take the picture {i+1} ")
+if not captured_files:
+    AI_speak("Error: Could not capture any images from camera.")
+    print("Error: Could not capture images from camera.")
+    exit()
 
-   
-# حذف أول صورة
-first_image_path = f"text_recognition_1.jpg"
-os.remove(first_image_path)
-print("first picture is delete") 
-                
+# Use the last captured image
+img_to_use = captured_files[-1]
+print(f"Using {img_to_use} for recognition.")
+
+# Cleanup other captured files
+for f in captured_files:
+    if f != img_to_use and os.path.exists(f):
+        os.remove(f)
+        print(f"Cleaned up temporary file: {f}")
 
 #======================================================================================  
 
-
-
-
 def tesseract():
- img = cv2.imread(r'C:\\Users\\engmo\\OneDrive\\Documents\\vs code\\project\\text_recognition_2.jpg')
+    img = cv2.imread(img_to_use)
+    if img is None:
+        print(f"Error: Could not load image '{img_to_use}'.")
+        return
 
- path_to_tesseract = r"c:\\Program Files\\Tesseract-OCR\\tesseract.exe"
- pytesseract.tesseract_cmd = path_to_tesseract
- text = pytesseract.image_to_string(Image.fromarray(img))
- AI_speak(text)
- #-------------------------------
- i=0
- for n in text:
-     if(n =="\n" or n==" "):
-         continue
-     else:
-         i=i+1
-
- if(i<1):
-     AI_speak("nothing detected, please try again")
+    path_to_tesseract = r"c:\\Program Files\\Tesseract-OCR\\tesseract.exe"
+    pytesseract.tesseract_cmd = path_to_tesseract
+    try:
+        text = pytesseract.image_to_string(Image.fromarray(img))
+        AI_speak(text)
+        
+        # Count non-whitespace characters
+        char_count = sum(1 for n in text if n not in ["\n", " "])
+        if char_count < 1:
+            AI_speak("nothing detected, please try again")
+    except Exception as e:
+        print(f"Tesseract error: {e}")
+        AI_speak("Error during text recognition.")
 
 tesseract()
 
