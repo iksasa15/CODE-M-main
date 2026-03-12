@@ -19,7 +19,7 @@ app = Flask(__name__)
 PROJECT_DIR = Path(__file__).resolve().parent
 
 # مودلات تعرض البث داخل المتصفح (بدل نافذة OpenCV)
-STREAMABLE_MODELS = ["color_detection.py", "traffic_light_recognition.py", "age_gender_detection.py"]
+STREAMABLE_MODELS = ["color_detection.py", "traffic_light_recognition.py", "face_analysis.py", "text_recognition.py"]
 
 # بث المودل: آخر إطار + قفل + العملية الحالية
 _stream_frame = None
@@ -30,10 +30,10 @@ _stream_listener_socket = None
 # قائمة المودلات المتاحة (اسم العرض => اسم الملف)
 MODELS = [
     ("كشف الألوان - Color Detection", "color_detection.py"),
+    ("تحليل الوجه (عمر، جنس، انفعال) - Face Analysis", "face_analysis.py"),
     ("التعرف على الوجه - Face Recognition", "face_recognition.py"),
     ("إشارة المرور الضوئية - Traffic Light", "traffic_light_recognition.py"),
-    ("العمر والجنس - Age & Gender", "age_gender_detection.py"),
-    ("النص OCR - Text Recognition", "text_recognition_ocr.py"),
+    ("قراءة النص OCR - Text Recognition", "text_recognition.py"),
     ("المسافة للأجسام - Object Distance", "object_distance_calculator.py"),
     ("البحث الصوتي - Voice Object Search", "voice_object_search.py"),
     ("وصف الصورة - Image Caption", "image_caption_generator.py"),
@@ -451,9 +451,5 @@ def run():
 
 
 if __name__ == "__main__":
-    import logging
-    log = logging.getLogger("werkzeug")
-    log.setLevel(logging.WARNING)
-    print("Running at http://0.0.0.0:5001")
     app.run(host="0.0.0.0", port=5001, debug=False)
     

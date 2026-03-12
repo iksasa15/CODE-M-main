@@ -59,3 +59,9 @@ flask
 # مودل إشارة المرور الضوئية (YOLO)
 torch
 ultralytics
+
+# تحليل الوجه (عمر، جنس، انفعال)
+deepface
+
+# قراءة النص (OCR - EasyOCR)
+easyocr
