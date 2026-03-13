@@ -36,7 +36,6 @@ MODELS = [
     ("قراءة النص OCR - Text Recognition", "text_recognition.py"),
     ("تقدير العمق - Depth-Anything-V2", "depth_estimation.py"),
     ("البحث الصوتي - Voice Object Search", "voice_object_search.py"),
-    ("وصف الصور - BLIP-2", "image_caption_blip.py"),
     ("تمييز الوجوه - InsightFace", "face_insight.py"),
     ("كشف العملات - YOLOv11", "currency_yolo11.py"),
 ]
