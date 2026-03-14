@@ -216,7 +216,7 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
                 <div class="field" id="ipField">
-                    <label for="ip">IP الكاميرا</label>
+                    <label for="ip">IP الكاميرا <span class="sub" style="font-weight: normal;">(نوع: ESP32-CAM)</span></label>
                     <input type="text" id="ip" name="ip" placeholder="مثال: 192.168.8.12" value="192.168.8.12" autocomplete="off">
                 </div>
                 <div class="field" id="streamOpts">
@@ -224,21 +224,22 @@ HTML_TEMPLATE = """
                     <input type="text" id="streamPort" name="streamPort" placeholder="80" value="80" style="width: 5rem;">
                     <label for="streamPathSelect" style="margin-top: 0.5rem;">مسار البث (اختر من القائمة)</label>
                     <select id="streamPathSelect" name="streamPath" style="max-width: 12rem;">
-                        <option value="" selected>/ (فارغ)</option>
+                        <option value="">/ (فارغ)</option>
                         <option value="video">video</option>
                         <option value="live.flv">live.flv</option>
-                        <option value="stream">stream</option>
+                        <option value="stream" selected>stream</option>
                         <option value="mjpeg">mjpeg</option>
                         <option value="__other__">أخرى (أدخل أدناه)</option>
                     </select>
                     <input type="text" id="streamPathCustom" name="streamPathCustom" placeholder="مثلاً capture أو custom" style="max-width: 10rem; margin-top: 0.25rem; display: none;">
                     <p class="sub" style="margin-top: 0.5rem; font-size: 0.8rem;">من تطبيق البث: انسخ عنوان LAN (مثلاً <code>192.168.1.3:80</code> أو <code>192.168.1.3:8081</code>) وضع الـ IP في الحقل أعلاه والمنفذ في «منفذ البث». تأكد أن خادم البث يعمل في التطبيق (ليس «RTSP Server Closed»—فعّل بث HTTP أو Live Push إن وُجد).</p>
-                    <p class="sub" style="margin-top: 0.25rem; font-size: 0.8rem;">من Arduino: انسخ عنوان البث من الشاشة التسلسلية (مثلاً :81/stream أو :80/stream)</p>
+                    <p class="sub" style="margin-top: 0.25rem; font-size: 0.8rem;">ESP32-CAM: من Arduino انسخ عنوان البث من الشاشة التسلسلية (مثلاً :80/stream أو :81/stream). مسار البث الشائع: <code>stream</code>.</p>
                     <label class="sub" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; font-size: 0.85rem;">
                         <input type="checkbox" id="useMjpegHttp" name="useMjpegHttp" value="1">
-                        استخدام بث MJPEG عبر HTTP فقط (بديل عند فشل FFmpeg)
+                        استخدام طرق بديلة فقط (MJPEG عبر HTTP ثم التقاط صور /capture)
                     </label>
-                    <button type="button" class="btn btn-check" id="btnCheckStream" style="margin-top: 0.5rem;">تحقق اتصال من البث</button>
+                    <button type="button" class="btn btn-check" id="btnCheckIp" style="margin-top: 0.5rem;">تأكد أن IP الكاميرا شغال</button>
+                    <button type="button" class="btn btn-check" id="btnCheckStream" style="margin-top: 0.35rem;">تحقق اتصال من البث</button>
                     <button type="button" class="btn btn-check" id="btnTestAllPaths" style="margin-top: 0.35rem;">اختبار كل المسارات واختيار المتصل</button>
                 </div>
                 <div class="field">
@@ -325,6 +326,34 @@ HTML_TEMPLATE = """
             } catch (e) { showMsg('خطأ في الإيقاف', true); }
         });
 
+        document.getElementById('btnCheckIp').addEventListener('click', async () => {
+            const ip = document.getElementById('ip').value.trim();
+            const streamPort = document.getElementById('streamPort').value.trim() || '80';
+            if (!ip) {
+                showMsg('أدخل IP الكاميرا أولاً', true);
+                return;
+            }
+            const btn = document.getElementById('btnCheckIp');
+            btn.disabled = true;
+            showMsg('جاري التحقق من وصول الكاميرا...', false);
+            try {
+                const r = await fetch('/check_ip', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ip, streamPort })
+                });
+                const data = await r.json();
+                if (data.ok) {
+                    showMsg(data.message || 'IP الكاميرا يعمل ✓', false);
+                } else {
+                    showMsg(data.error || 'لا يمكن الوصول إلى الكاميرا', true);
+                }
+            } catch (err) {
+                showMsg('خطأ: ' + err.message, true);
+            }
+            btn.disabled = false;
+        });
+
         document.getElementById('btnCheckStream').addEventListener('click', async () => {
             const ip = document.getElementById('ip').value.trim();
             const streamPort = document.getElementById('streamPort').value.trim() || '80';
@@ -385,7 +414,8 @@ HTML_TEMPLATE = """
                     }
                     showMsg('تم اختيار المسار المتصل: ' + (path || '/') + ' — ' + (data.url || ''), false);
                 } else {
-                    showMsg(data.error || 'لم يتصل أي مسار', true);
+                    document.getElementById('useMjpegHttp').checked = true;
+                    showMsg('الجهاز يستجيب لكن لم يُكتشف بث. تم تفعيل «طرق بديلة» — اضغط «تشغيل» (سيُجرّب MJPEG ثم /capture).', true);
                 }
             } catch (err) {
                 showMsg('خطأ: ' + err.message, true);
@@ -595,18 +625,63 @@ def _check_stream_connection(ip, port, path):
                 pass
             if ret:
                 return True, url
-    return False, "لم يفتح أي رابط بث. جرّب المنفذ 80 إذا كان المتصفح يفتح بدون منفذ. إن استمر الفشل فقد يكون البث بصيغة لا يدعمها البرنامج (مثل HLS)—ابحث في تطبيق الكاميرا عن خيار بث MJPEG."
+    # طريقة بديلة: MJPEG عبر HTTP
+    for url in urls:
+        ok, _ = _try_mjpeg_http_url(url, timeout=10)
+        if ok:
+            return True, url
+    if not _can_reach_host(ip, port):
+        return False, f"لا يمكن الوصول إلى {ip}:{port}. تأكد أن الكاميرا على نفس الشبكة والمنفذ صحيح."
+    return False, "الجهاز يستجيب لكن لم يُكتشف بث. جرّب تفعيل «طرق بديلة فقط» ثم اضغط «تشغيل» (MJPEG أو /capture)."
+
+
+def _can_reach_host(ip, port):
+    """التحقق من إمكانية الوصول إلى الجهاز على المنفذ (اتصال TCP)."""
+    try:
+        port = int((port or "80").strip() or "80")
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(5)
+        s.connect((ip.strip(), port))
+        s.close()
+        return True
+    except Exception:
+        return False
+
+
+def _try_mjpeg_http_url(url, timeout=12):
+    """تجربة فتح الرابط كبث MJPEG عبر HTTP (بدون FFmpeg). يُرجع (True, url) إن وُجد إطار JPEG أو بداية JPEG."""
+    try:
+        import requests
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:91.0) Gecko/20100101 Firefox/91.0", "Accept": "multipart/x-mixed-replace, */*"}
+        r = requests.get(url, stream=True, timeout=timeout, headers=headers)
+        r.raise_for_status()
+        buf = b""
+        for i, chunk in enumerate(r.iter_content(chunk_size=16384)):
+            if i > 200:
+                break
+            buf += chunk
+            if len(buf) < 2:
+                continue
+            a = buf.find(b"\xff\xd8")
+            if a != -1:
+                b = buf.find(b"\xff\xd9", a)
+                if b != -1 and b > a:
+                    return True, url
+                if len(buf) > 50000:
+                    buf = buf[a:]
+        return False, ""
+    except Exception:
+        return False, ""
 
 
 def _test_all_paths(ip, port):
-    """تجربة مسارات البث بالترتيب (فارغ، video، live.flv، stream، mjpeg) على المنفذ المعطى فقط. يُرجع (success, path, url)."""
+    """تجربة مسارات البث: أولاً OpenCV/FFmpeg، ثم الطريقة البديلة MJPEG عبر HTTP. يُرجع (success, path, url)."""
     import cv2
     port = (port or "80").strip() or "80"
     paths_to_try = ["", "video", "live.flv", "stream", "mjpeg"]
-    # نجرّب المنفذ المدخل فقط (لا نجرّب 80 تلقائياً لتجنب Connection refused)
+    base = f"http://{ip}:{port}/"
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;10000000"
     for path in paths_to_try:
-        base = f"http://{ip}:{port}/"
         url = base + (path.strip("/") if path else "")
         cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
         if cap.isOpened():
@@ -617,6 +692,12 @@ def _test_all_paths(ip, port):
                 pass
             if ret:
                 return True, path if path else "", url
+    # طريقة بديلة: MJPEG عبر HTTP (بدون FFmpeg)
+    for path in paths_to_try:
+        url = base + (path.strip("/") if path else "")
+        ok, u = _try_mjpeg_http_url(url)
+        if ok:
+            return True, path if path else "", u
     return False, "", ""
 
 
@@ -632,7 +713,27 @@ def test_all_paths():
         ok, path, url = _test_all_paths(ip, port)
         if ok:
             return jsonify(ok=True, path=path, url=url)
-        return jsonify(ok=False, error="لم يتصل أي مسار. تأكد من تشغيل خادم البث.")
+        if not _can_reach_host(ip, port):
+            err = f"لا يمكن الوصول إلى {ip}:{port}. تأكد أن الكاميرا ESP32 تعمل وعلى نفس شبكة الجهاز (Wi‑Fi)، وأن المنفذ صحيح."
+        else:
+            err = "الجهاز يستجيب لكن لم يُكتشف بث. فعّل «طرق بديلة فقط» واضغط «تشغيل» — سيُجرّب MJPEG ثم التقاط صور من /capture (مناسب لـ ESP32-CAM)."
+        return jsonify(ok=False, error=err)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e))
+
+
+@app.route("/check_ip", methods=["POST"])
+def check_ip():
+    """التحقق من إمكانية الوصول إلى IP الكاميرا والمنفذ (اتصال TCP فقط)."""
+    try:
+        data = request.get_json() or {}
+        ip = (data.get("ip") or "").strip()
+        if not ip:
+            return jsonify(ok=False, error="أدخل IP الكاميرا أولاً.")
+        port = (data.get("streamPort") or "").strip() or "80"
+        if _can_reach_host(ip, port):
+            return jsonify(ok=True, message=f"IP الكاميرا يعمل — تم الوصول إلى {ip}:{port}")
+        return jsonify(ok=False, error=f"لا يمكن الوصول إلى {ip}:{port}. تأكد أن الكاميرا تعمل وعلى نفس الشبكة (Wi‑Fi) والمنفذ صحيح.")
     except Exception as e:
         return jsonify(ok=False, error=str(e))
 
